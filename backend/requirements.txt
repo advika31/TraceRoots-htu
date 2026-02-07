@@ -1,0 +1,16 @@
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+SQLAlchemy==2.0.36
+pydantic==2.9.2
+qrcode==7.4.2
+Pillow==10.4.0
+web3==6.19.0
+py-solc-x==2.0.3
+python-dotenv
+jinja2
+moviepy
+google-cloud-texttospeech
+pillow
+edge-tts
+passlib
+python-multipart
