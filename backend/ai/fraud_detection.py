@@ -162,7 +162,7 @@ def run_fraud_checks(data, image_path, reference_vector=None):
             )
             
     exif = extract_exif(image_path)
-    img_lat, img_lon = get_image_gps(exif)
+    img_lat, img_lon = extract_image_gps(exif)
 
     if img_lat and img_lon:
         is_fraud, reason = check_gps_mismatch(
