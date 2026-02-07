@@ -16,7 +16,7 @@ from ai.fraud_detection import check_crop_location, check_yield
 from ai.fraud_detection import check_exif, extract_exif
 from ai.fraud_detection import check_gps_mismatch, extract_image_gps
 from ai.freshness_analysis import analyze_freshness
-from ai.blockchain import generate_onchain_record, hash_onchain_record
+from ai.blockchain import generate_onchain_record, generate_origin_hash, hash_onchain_record
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
 
@@ -53,9 +53,7 @@ def create_batch(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
-    # --------------------------------------------------
-    # 1️⃣ Parse Location
-    # --------------------------------------------------
+
     lat, lng = 0.0, 0.0
     try:
         parts = location.split(",")
@@ -64,9 +62,6 @@ def create_batch(
     except:
         pass
 
-    # --------------------------------------------------
-    # 2️⃣ Validate Photos
-    # --------------------------------------------------
     if not files or len(files) < 2:
         raise HTTPException(
             status_code=400,
@@ -87,9 +82,7 @@ def create_batch(
         seen_hashes.add(h)
         file_payloads.append((file.filename, content))
 
-    # --------------------------------------------------
-    # 3️⃣ Create Batch (initial)
-    # --------------------------------------------------
+
     batch_id = str(uuid.uuid4())[:8]
 
     batch = models.Batch(
@@ -111,9 +104,6 @@ def create_batch(
 
     image_paths = []
 
-    # --------------------------------------------------
-    # 4️⃣ Save Images
-    # --------------------------------------------------
     for idx, (filename, content) in enumerate(file_payloads):
         ext = filename.split(".")[-1]
         unique_name = f"{uuid.uuid4()}.{ext}"
@@ -130,19 +120,30 @@ def create_batch(
             description=f"Harvest Image {idx + 1}"
         ))
 
-    # --------------------------------------------------
-    # 🔒 5️⃣ FRAUD CHECKS (HARD GATE)
-    # --------------------------------------------------
     fraud_reasons = []
 
-    f1, r1 = check_crop_location(crop_name, region or "")
+
+    region_safe = region if region else "Unknown"
+    f1, r1 = check_crop_location(crop_name, region_safe)
     f2, r2 = check_yield(crop_name, quantity, 1)  # assume 1 acre
 
     if f1: fraud_reasons.append(r1)
     if f2: fraud_reasons.append(r2)
 
-    f3, r3 = check_exif(image_paths[0])
-    if f3: fraud_reasons.append(r3)
+    exif = extract_exif(image_paths[0])
+    if not exif:
+        fraud_reasons.append("Missing EXIF metadata")
+    else:
+        f3, r3 = check_exif(image_paths[0])
+        if f3:
+            fraud_reasons.append(r3)
+
+        if "GPSInfo" in exif:
+            img_lat, img_lng = extract_image_gps(exif)
+            f4, r4 = check_gps_mismatch(lat, lng, img_lat, img_lng)
+            if f4:
+                fraud_reasons.append(f"GPS mismatch warning: {r4}")
+
 
     if fraud_reasons:
         batch.status = models.BatchStatus.FLAGGED
@@ -150,10 +151,7 @@ def create_batch(
         db.commit()
         db.refresh(batch)
         return batch
-
-    # --------------------------------------------------
-    # 🤖 6️⃣ AI FRESHNESS (SOFT GATE)
-    # --------------------------------------------------
+    
     ai = analyze_freshness(image_paths[0])
 
     if "error" in ai:
@@ -174,9 +172,6 @@ def create_batch(
         + datetime.timedelta(days=ai["estimated_shelf_life_days"])
     )
 
-    # --------------------------------------------------
-    # ⛓️ 7️⃣ BLOCKCHAIN PREP (HASH ONLY)
-    # --------------------------------------------------
     batch.origin_hash = generate_origin_hash(
         latitude=lat,
         longitude=lng,
@@ -193,9 +188,6 @@ def create_batch(
 
     batch.blockchain_tx_hash = hash_onchain_record(onchain_payload)
 
-    # --------------------------------------------------
-    # ✅ 8️⃣ FINALIZE
-    # --------------------------------------------------
     batch.status = models.BatchStatus.VERIFIED
     batch.is_verified = True
 

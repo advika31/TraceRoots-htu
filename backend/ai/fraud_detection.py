@@ -3,9 +3,6 @@ from PIL.ExifTags import TAGS
 from datetime import datetime, timedelta
 import numpy as np
 import math
-from haversine import haversine, Unit
-from ai.vectorize import image_to_vector
-from ai.hash_ai import vector_to_hash
 
 
 MAX_YIELD_PER_ACRE = {
@@ -115,7 +112,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def get_image_gps(exif):
+def extract_image_gps(exif):
     if not exif:
         return None, None
 
@@ -155,7 +152,7 @@ def run_fraud_checks(data, image_path, reference_vector=None):
         check_exif(image_path),
     ]
 
-        # Only apply cosine similarity AFTER farmer stage
+    # Only apply cosine similarity AFTER farmer stage
     if data["actor_role"] != "farmer":
         if reference_vector is None:
             flags.append("Missing reference image for comparison")
@@ -177,9 +174,9 @@ def run_fraud_checks(data, image_path, reference_vector=None):
         if is_fraud:
             flags.append(reason)
 
-    for is_fraud, reason in checks:
-        if is_fraud:
-            flags.append(reason)
+        for is_fraud, reason in checks:
+            if is_fraud:
+                flags.append(reason)
 
     return {
         "fraud_flag": len(flags) > 0,
