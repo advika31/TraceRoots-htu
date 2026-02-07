@@ -33,15 +33,27 @@ export default function ProductInfo() {
   return (
     <ScrollView style={styles.container}>
       {/* Hero Image */}
-      <Image source={{ uri: `${API_URL}${data.batch_details.image}` }} style={styles.heroImage} />
+      {data.batch_details?.image ? (
+        <Image source={{ uri: `${API_URL}${data.batch_details.image}` }} style={styles.heroImage} />
+      ) : (
+        <View style={[styles.heroImage, styles.heroPlaceholder]}><Ionicons name="leaf" size={60} color="#ccc" /></View>
+      )}
       
       <View style={styles.content}>
         {/* Title & Verification */}
         <View style={styles.header}>
           <Text style={styles.title}>{data.batch_details.crop_name}</Text>
-          <View style={styles.badge}>
-            <Ionicons name="shield-checkmark" size={16} color="#fff" />
-            <Text style={styles.badgeText}>Verified</Text>
+          <View style={styles.badgeRow}>
+            <View style={styles.badge}>
+              <Ionicons name="shield-checkmark" size={16} color="#fff" />
+              <Text style={styles.badgeText}>Verified</Text>
+            </View>
+            {data.verification?.on_chain && (
+              <View style={[styles.badge, styles.chainBadge]}>
+                <Ionicons name="link" size={14} color="#fff" />
+                <Text style={styles.badgeText}>On-chain</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -67,7 +79,10 @@ export default function ProductInfo() {
 
         {/* Blockchain Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Blockchain ID: {data.verification.blockchain_hash}</Text>
+          <Text style={styles.footerText}>
+            {data.verification?.on_chain ? 'Verified on TraceRoots blockchain. ' : ''}
+            Proof: {data.verification?.blockchain_hash ?? '—'}
+          </Text>
         </View>
       </View>
     </ScrollView>
@@ -81,8 +96,11 @@ const styles = StyleSheet.create({
   content: { padding: 20, borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30, backgroundColor: '#fff' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   title: { fontSize: 28, fontWeight: 'bold', color: '#333' },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: { flexDirection: 'row', backgroundColor: '#2e7d32', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, alignItems: 'center' },
+  chainBadge: { backgroundColor: '#1565c0' },
   badgeText: { color: '#fff', marginLeft: 5, fontWeight: 'bold' },
+  heroPlaceholder: { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, color: '#1b5e20' },
   storyText: { fontSize: 16, lineHeight: 24, color: '#555', marginBottom: 30 },
   timeline: { borderLeftWidth: 2, borderLeftColor: '#e0e0e0', marginLeft: 10 },

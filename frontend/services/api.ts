@@ -147,4 +147,10 @@ export const NotificationsAPI = {
   getForUser: async (userId: number) => (await api.get(`/farmers/${userId}/notifications`)).data,
 };
 
+// --- Blockchain (TraceRoots contract) ---
+export const BlockchainAPI = {
+  verifyBatch: async (batchId: string) => (await api.get(`/blockchain/batch/${batchId}`)).data,
+  registerBatch: async (batchId: string) => (await api.post(`/blockchain/register/${batchId}`)).data,
+};
+
 export default api;

@@ -7,13 +7,15 @@ import enum
 
 # --- ENUMS ---
 class BatchStatus(str, enum.Enum):
-    HARVESTED = "HARVESTED"       
-    AT_PROCESSOR = "AT_PROCESSOR" 
-    LAB_TESTED = "LAB_TESTED"     
+    HARVESTED = "HARVESTED"
+    FLAGGED = "FLAGGED"
+    VERIFIED = "VERIFIED"
+    AT_PROCESSOR = "AT_PROCESSOR"
+    LAB_TESTED = "LAB_TESTED"
     IN_TRANSIT = "IN_TRANSIT"
-    SOLD = "SOLD"                 
-    DONATION_READY = "DONATION_READY" 
-    DISTRIBUTED = "DISTRIBUTED"   
+    SOLD = "SOLD"
+    DONATION_READY = "DONATION_READY"
+    DISTRIBUTED = "DISTRIBUTED"
     EXPIRED = "EXPIRED"
 
 class UserRole(str, enum.Enum):

@@ -7,20 +7,24 @@ import {
   View,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
-import api from "@/services/api";
+import api, { BlockchainAPI } from "@/services/api";
 
 export default function RegulatorBatchLookup() {
   const [batchId, setBatchId] = useState("");
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [chainInfo, setChainInfo] = useState<any>(null);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
   const fetchBatch = async () => {
     if (!batchId) {
       Alert.alert("Please enter Batch ID");
       return;
     }
-
+    setChainInfo(null);
     setLoading(true);
     try {
       const res = await api.get(`/batches/${batchId}`);
@@ -30,6 +34,35 @@ export default function RegulatorBatchLookup() {
       setData(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyOnChain = async () => {
+    if (!batchId) return;
+    setChainLoading(true);
+    setChainInfo(null);
+    try {
+      const res = await BlockchainAPI.verifyBatch(batchId);
+      setChainInfo(res);
+    } catch (e: any) {
+      Alert.alert("Blockchain", e?.response?.data?.detail || "Could not verify on chain");
+    } finally {
+      setChainLoading(false);
+    }
+  };
+
+  const registerOnChain = async () => {
+    if (!batchId) return;
+    setRegistering(true);
+    try {
+      const res = await BlockchainAPI.registerBatch(batchId);
+      setChainInfo((prev: any) => ({ ...prev, ...res, on_chain: true }));
+      if (data) setData({ ...data, blockchain_tx_hash: res.blockchain_tx_hash });
+      Alert.alert("Success", res.message || "Registered on chain");
+    } catch (e: any) {
+      Alert.alert("Blockchain", e?.response?.data?.detail || "Registration failed");
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -69,6 +102,21 @@ export default function RegulatorBatchLookup() {
 
           <Text style={styles.section}>Blockchain</Text>
           <Text>TX: {data.blockchain_tx_hash || "Not synced"}</Text>
+          <View style={styles.chainRow}>
+            <TouchableOpacity style={styles.chainButton} onPress={verifyOnChain} disabled={chainLoading}>
+              {chainLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.chainButtonText}>Verify on chain</Text>}
+            </TouchableOpacity>
+            {chainInfo && !chainInfo.on_chain && (
+              <TouchableOpacity style={[styles.chainButton, styles.registerButton]} onPress={registerOnChain} disabled={registering}>
+                {registering ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.chainButtonText}>Register on chain</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+          {chainInfo && (
+            <Text style={styles.chainStatus}>
+              {chainInfo.on_chain ? "✓ Verified on TraceRoots contract" : "Not yet on chain"}
+            </Text>
+          )}
         </View>
       )}
     </ScrollView>
@@ -78,6 +126,29 @@ export default function RegulatorBatchLookup() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  chainRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  chainButton: {
+    backgroundColor: "#1565c0",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  registerButton: {
+    backgroundColor: "#2e7d32",
+  },
+  chainButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  chainStatus: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#333",
     backgroundColor: "#f0fdf4",
     padding: 20,
   },

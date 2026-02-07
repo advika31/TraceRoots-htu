@@ -24,6 +24,7 @@ from ai.fraud_detection import (
 )
 from ai.freshness_analysis import analyze_freshness
 from ai.blockchain import generate_origin_hash, hash_onchain_record
+from utils.blockchain_utils import create_batch_onchain
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
 
@@ -194,8 +195,19 @@ def create_batch(
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
-    # Pre-chain content hash (tx hash later)
+    # Local proof hash; replace with real tx hash if chain registration succeeds
     batch.blockchain_tx_hash = hash_onchain_record(onchain_payload)
+    try:
+        expiry_ts = int(batch.expiry_date.timestamp())
+        tx_hash = create_batch_onchain(
+            batch_id=batch.batch_id,
+            crop_type=batch.crop_name,
+            origin_hash=batch.origin_hash,
+            expiry_timestamp=expiry_ts,
+        )
+        batch.blockchain_tx_hash = tx_hash
+    except Exception:
+        pass  # chain unavailable; keep local hash, batch still verified
 
     batch.status = models.BatchStatus.VERIFIED
     batch.is_verified = True

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import os
 
 from database import engine, Base
-from routes import auth, farmers, batches, regulator, processor, consumer, surplus, ai
+from routes import auth, farmers, batches, regulator, processor, consumer, surplus, ai, blockchain
 
 Base.metadata.create_all(bind=engine)
 load_dotenv(dotenv_path=".env", override=True)
@@ -39,6 +39,7 @@ app.include_router(processor.router)
 app.include_router(consumer.router)
 app.include_router(surplus.router)
 app.include_router(ai.router)
+app.include_router(blockchain.router)
 
 @app.get("/")
 def home():
