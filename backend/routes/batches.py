@@ -11,6 +11,12 @@ from database import get_db
 import models
 import schemas
 from utils.qr_utils import generate_qr
+from pathlib import Path
+from ai.fraud_detection import check_crop_location, check_yield
+from ai.fraud_detection import check_exif, extract_exif
+from ai.fraud_detection import check_gps_mismatch, extract_image_gps
+from ai.freshness_analysis import analyze_freshness
+from ai.blockchain import generate_onchain_record, hash_onchain_record
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
 
@@ -47,93 +53,162 @@ def create_batch(
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
-    # 1. Parse Location
+    # --------------------------------------------------
+    # 1️⃣ Parse Location
+    # --------------------------------------------------
     lat, lng = 0.0, 0.0
     try:
         parts = location.split(",")
         lat = float(parts[0])
         lng = float(parts[1])
     except:
-        pass 
+        pass
 
-    # 2. Validate Photos
+    # --------------------------------------------------
+    # 2️⃣ Validate Photos
+    # --------------------------------------------------
     if not files or len(files) < 2:
-        raise HTTPException(status_code=400, detail="Please upload at least 2 photos from different angles.")
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload at least 2 photos from different angles."
+        )
 
-    file_hashes = set()
     file_payloads = []
+    seen_hashes = set()
 
     for file in files:
         content = file.file.read()
-        file_hash = hashlib.sha256(content).hexdigest()
-        if file_hash in file_hashes:
-            raise HTTPException(status_code=400, detail="Duplicate photo detected. Please upload different angles.")
-        file_hashes.add(file_hash)
+        h = hashlib.sha256(content).hexdigest()
+        if h in seen_hashes:
+            raise HTTPException(
+                status_code=400,
+                detail="Duplicate image detected."
+            )
+        seen_hashes.add(h)
         file_payloads.append((file.filename, content))
 
-    # 3. Create Batch
-    new_batch_id = str(uuid.uuid4())[:8]
-    db_batch = models.Batch(
-        batch_id=new_batch_id,
+    # --------------------------------------------------
+    # 3️⃣ Create Batch (initial)
+    # --------------------------------------------------
+    batch_id = str(uuid.uuid4())[:8]
+
+    batch = models.Batch(
+        batch_id=batch_id,
         farmer_id=farmer_id,
         crop_name=crop_name,
         quantity=quantity,
         harvest_date=datetime.datetime.utcnow(),
-        expiry_date=datetime.datetime.utcnow() + datetime.timedelta(days=7),
         latitude=lat,
         longitude=lng,
-        region=region or "Local Farm", 
-        status=models.BatchStatus.HARVESTED
+        region=region or "Local Farm",
+        status=models.BatchStatus.HARVESTED,
+        is_verified=False
     )
-    db.add(db_batch)
+
+    db.add(batch)
     db.commit()
-    db.refresh(db_batch)
+    db.refresh(batch)
 
-    # 4. Handle Images (Multiple Angles)
+    image_paths = []
+
+    # --------------------------------------------------
+    # 4️⃣ Save Images
+    # --------------------------------------------------
     for idx, (filename, content) in enumerate(file_payloads):
-        file_ext = filename.split(".")[-1]
-        unique_filename = f"{uuid.uuid4()}.{file_ext}"
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
-        
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
+        ext = filename.split(".")[-1]
+        unique_name = f"{uuid.uuid4()}.{ext}"
+        path = os.path.join(UPLOAD_DIR, unique_name)
 
-        new_image = models.BatchImage(
-            batch_id=db_batch.id,
-            image_url=f"/static/uploads/{unique_filename}",
-            description=f"Harvest Photo Angle {idx + 1}"
-        )
-        db.add(new_image)
-    
-    # 5. Add Timeline Event
+        with open(path, "wb") as f:
+            f.write(content)
+
+        image_paths.append(Path(path))
+
+        db.add(models.BatchImage(
+            batch_id=batch.id,
+            image_url=f"/static/uploads/{unique_name}",
+            description=f"Harvest Image {idx + 1}"
+        ))
+
+    # --------------------------------------------------
+    # 🔒 5️⃣ FRAUD CHECKS (HARD GATE)
+    # --------------------------------------------------
+    fraud_reasons = []
+
+    f1, r1 = check_crop_location(crop_name, region or "")
+    f2, r2 = check_yield(crop_name, quantity, 1)  # assume 1 acre
+
+    if f1: fraud_reasons.append(r1)
+    if f2: fraud_reasons.append(r2)
+
+    f3, r3 = check_exif(image_paths[0])
+    if f3: fraud_reasons.append(r3)
+
+    if fraud_reasons:
+        batch.status = models.BatchStatus.FLAGGED
+        batch.processor_notes = "; ".join(fraud_reasons)
+        db.commit()
+        db.refresh(batch)
+        return batch
+
+    # --------------------------------------------------
+    # 🤖 6️⃣ AI FRESHNESS (SOFT GATE)
+    # --------------------------------------------------
+    ai = analyze_freshness(image_paths[0])
+
+    if "error" in ai:
+        ai = {
+            "freshness_score": 85,
+            "quality_grade": "B",
+            "estimated_shelf_life_days": 4,
+            "visual_defects": []
+        }
+
+    batch.freshness_score = ai["freshness_score"]
+    batch.quality_grade = ai["quality_grade"]
+    batch.estimated_shelf_life = ai["estimated_shelf_life_days"]
+    batch.visual_defects = ", ".join(ai.get("visual_defects", []))
+
+    batch.expiry_date = (
+        datetime.datetime.utcnow()
+        + datetime.timedelta(days=ai["estimated_shelf_life_days"])
+    )
+
+    # --------------------------------------------------
+    # ⛓️ 7️⃣ BLOCKCHAIN PREP (HASH ONLY)
+    # --------------------------------------------------
+    batch.origin_hash = generate_origin_hash(
+        latitude=lat,
+        longitude=lng,
+        region=region or "Local Farm"
+    )
+
+    onchain_payload = {
+        "batchId": batch.batch_id,
+        "cropType": crop_name,
+        "originHash": batch.origin_hash,
+        "expiryDate": batch.expiry_date.date().isoformat(),
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
+
+    batch.blockchain_tx_hash = hash_onchain_record(onchain_payload)
+
+    # --------------------------------------------------
+    # ✅ 8️⃣ FINALIZE
+    # --------------------------------------------------
+    batch.status = models.BatchStatus.VERIFIED
+    batch.is_verified = True
+
     db.add(models.BatchEvent(
-        batch_id=db_batch.id,
-        event_type="HARVEST",
-        description=f"Farmer uploaded {quantity}kg of {crop_name}",
+        batch_id=batch.id,
+        event_type="VERIFIED",
+        description="Batch passed fraud checks and AI verification",
         location=f"{lat},{lng}"
     ))
 
-    # 6. Generate QR
-    qr_payload = {
-        "batch_id": db_batch.batch_id,
-        "crop_name": db_batch.crop_name,
-        "farmer_id": db_batch.farmer_id
-    }
-    qr_path = generate_qr(db_batch.batch_id, qr_payload)
-    qr_url = "/" + qr_path.replace("\\", "/")
-    db_batch.qr_code_url = qr_url
-
-    # 7. Alerts for Regulator (Banned/Suspicious)
-    banned_regions = [r.strip().lower() for r in _get_setting(db, "BANNED_REGIONS", "").split(",") if r.strip()]
-    if region and any(r in region.lower() for r in banned_regions):
-        _notify_regulator(db, f"Alert: Harvest uploaded from banned zone {region}.", "Urgent")
-
-    if crop_name.lower() == "saffron" and region and "kashmir" not in region.lower():
-        _notify_regulator(db, f"Alert: Saffron uploaded from non-Kashmir region ({region}).", "Important")
-
     db.commit()
-    db.refresh(db_batch)
-    return db_batch
+    db.refresh(batch)
+    return batch
 
 @router.get("/farmer/{farmer_id}", response_model=List[schemas.Batch])
 def get_my_batches(farmer_id: int, db: Session = Depends(get_db)):

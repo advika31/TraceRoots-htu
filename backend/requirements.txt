@@ -14,4 +14,4 @@ pillow
 edge-tts
 passlib
 python-multipart
-ethers dotenv
+ethers-dotenv

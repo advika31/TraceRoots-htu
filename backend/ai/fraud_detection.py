@@ -2,6 +2,8 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from datetime import datetime, timedelta
 import numpy as np
+import math
+from haversine import haversine, Unit
 from ai.vectorize import image_to_vector
 from ai.hash_ai import vector_to_hash
 
@@ -99,6 +101,49 @@ def check_image_similarity(image_path, reference_vector):
 
     return False, None
 
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371  # Earth radius in km
+
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    )
+
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+def get_image_gps(exif):
+    if not exif:
+        return None, None
+
+    gps = exif.get("GPSInfo")
+    if not gps:
+        return None, None
+
+    def convert(coord):
+        d, m, s = coord
+        return d + m / 60 + s / 3600
+
+    lat = convert(gps[2])
+    if gps[1] != "N":
+        lat = -lat
+
+    lon = convert(gps[4])
+    if gps[3] != "E":
+        lon = -lon
+
+    return lat, lon
+
+
+def check_gps_mismatch(user_lat, user_lon, image_lat, image_lon):
+    distance = haversine(user_lat, user_lon, image_lat, image_lon)
+    if distance > 2:
+        return True, f"GPS mismatch ({round(distance,2)} km)"
+    return False, None
+
 
 
 def run_fraud_checks(data, image_path, reference_vector=None):
@@ -118,6 +163,19 @@ def run_fraud_checks(data, image_path, reference_vector=None):
             checks.append(
                 check_image_similarity(image_path, reference_vector)
             )
+            
+    exif = extract_exif(image_path)
+    img_lat, img_lon = get_image_gps(exif)
+
+    if img_lat and img_lon:
+        is_fraud, reason = check_gps_mismatch(
+            data["user_lat"],
+            data["user_lon"],
+            img_lat,
+            img_lon
+        )
+        if is_fraud:
+            flags.append(reason)
 
     for is_fraud, reason in checks:
         if is_fraud:

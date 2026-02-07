@@ -75,37 +75,39 @@ class Batch(Base):
     __tablename__ = "batches"
 
     id = Column(Integer, primary_key=True, index=True)
-    batch_id = Column(String, unique=True, index=True) 
-    
+    batch_id = Column(String, unique=True, index=True)
     farmer_id = Column(Integer, ForeignKey("users.id"))
-    
+
     crop_name = Column(String)
     quantity = Column(Float)
     harvest_date = Column(DateTime, default=datetime.datetime.utcnow)
+
     status = Column(String, default=BatchStatus.HARVESTED)
+    is_verified = Column(Boolean, default=False)
+
     video_story_url = Column(String, nullable=True)
     qr_code_url = Column(String, nullable=True)
-    expiry_date = Column(DateTime, nullable=True)
-        
-    # Location (Geospatial)
-    latitude = Column(Float, default=0.0)
-    longitude = Column(Float, default=0.0)
-    region = Column(String) 
 
-    # Processor Grading
+    # Expiry & Quality
+    expiry_date = Column(DateTime, nullable=True)
     freshness_score = Column(Float, nullable=True)
     quality_grade = Column(String, nullable=True)
     estimated_shelf_life = Column(Integer, nullable=True)
     visual_defects = Column(String, nullable=True)
     processor_notes = Column(String, nullable=True)
 
-    # Blockchain
+    # Location (Fraud + Blockchain)
+    latitude = Column(Float, default=0.0)
+    longitude = Column(Float, default=0.0)
+    region = Column(String)
+
+    # Blockchain Proof
+    origin_hash = Column(String, nullable=True)
     blockchain_tx_hash = Column(String, nullable=True)
-    is_verified = Column(Boolean, default=False)
 
     # Relationships
     owner = relationship("User", back_populates="batches")
-    images = relationship("BatchImage", back_populates="batch") 
+    images = relationship("BatchImage", back_populates="batch")
     timeline_events = relationship("BatchEvent", back_populates="batch")
     lab_report = relationship("LabReport", back_populates="batch", uselist=False)
     feedbacks = relationship("ConsumerFeedback", back_populates="batch")
