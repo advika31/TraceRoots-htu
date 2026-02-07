@@ -1,9 +1,8 @@
+import numpy as np
 import hashlib
-import json
 
-def hash_record(data):
-    encoded = json.dumps(data, sort_keys=True).encode()
-    return hashlib.sha256(encoded).hexdigest()
+def vector_to_hash(vector: np.ndarray, precision=2) -> str:
+    quantized = np.round(vector, precision)
+    byte_data = quantized.tobytes()
+    return hashlib.sha256(byte_data).hexdigest()
 
-def verify_record(data, expected_hash):
-    return hash_record(data) == expected_hash
