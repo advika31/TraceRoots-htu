@@ -4,3 +4,4 @@ backend/traceroots.db
 frontend/.vscode
 backend/venv
 backend/env
+backend/.venv

@@ -16,11 +16,14 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def analyze_freshness(image_path: Path) -> dict:
+    response = None
+    text = None
+
     image_bytes = image_path.read_bytes()
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     payload = {
-        "model": "qwen/qwen2.5-vl-7b-instruct",  # FREE + vision
+        "model": "openrouter/auto",
         "messages": [
             {
                 "role": "user",
@@ -30,9 +33,9 @@ def analyze_freshness(image_path: Path) -> dict:
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/png;base64,{image_b64}"
-                        }
-                    }
-                ]
+                        },
+                    },
+                ],
             }
         ],
         "temperature": 0,
@@ -42,7 +45,7 @@ def analyze_freshness(image_path: Path) -> dict:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost",
+        "HTTP-Referer": "https://traceroots.app",
         "X-Title": "TraceRoots",
     }
 
@@ -66,10 +69,12 @@ def analyze_freshness(image_path: Path) -> dict:
             "raw_response": text,
         }
 
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         return {
             "error": "openrouter_request_failed",
             "message": str(e),
+            "status_code": response.status_code if response else None,
+            "raw_response": response.text if response else None,
         }
 
     except Exception as e:
