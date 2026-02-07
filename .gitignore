@@ -2,3 +2,4 @@
 backend/static
 backend/traceroots.db
 frontend/.vscode
+backend/venv
