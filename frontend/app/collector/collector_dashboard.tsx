@@ -66,13 +66,13 @@ export default function CollectorDashboard() {
           <Text style={styles.cardText}>New Collection</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.card}
           onPress={() => router.push("/collector/herb-fingerprint")}
         >
           <MaterialIcons name="camera-alt" size={30} color="#15803d" />
           <Text style={styles.cardText}>Herb Fingerprint</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
         <TouchableOpacity
           style={styles.card}
