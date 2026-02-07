@@ -1,75 +1,72 @@
 # backend/routes/batches.py
+
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from typing import List
-import shutil
 import os
 import uuid
 import datetime
 import hashlib
+from pathlib import Path
+
 from database import get_db
 import models
 import schemas
 from utils.qr_utils import generate_qr
-from pathlib import Path
-from ai.fraud_detection import check_crop_location, check_yield
-from ai.fraud_detection import check_exif, extract_exif
-from ai.fraud_detection import check_gps_mismatch, extract_image_gps
+
+from ai.fraud_detection import (
+    check_crop_location,
+    check_yield,
+    check_exif,
+    extract_exif,
+    check_gps_mismatch,
+    extract_image_gps,
+)
 from ai.freshness_analysis import analyze_freshness
-from ai.blockchain import generate_onchain_record, generate_origin_hash, hash_onchain_record
+from ai.blockchain import generate_origin_hash, hash_onchain_record
 
 router = APIRouter(prefix="/batches", tags=["Batches"])
 
 UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 @router.get("/all", response_model=List[schemas.Batch])
 def get_all_batches(db: Session = Depends(get_db)):
-    return db.query(models.Batch).order_by(models.Batch.harvest_date.desc()).all()
+    return (
+        db.query(models.Batch)
+        .order_by(models.Batch.harvest_date.desc())
+        .all()
+    )
 
-def _get_setting(db: Session, key: str, default: str = "") -> str:
-    setting = db.query(models.GlobalSettings).filter(models.GlobalSettings.key == key).first()
-    return setting.value if setting else default
-
-def _notify_regulator(db: Session, message: str, priority: str = "Important"):
-    regulator = db.query(models.User).filter(models.User.role == "REGULATOR").first()
-    if not regulator:
-        return
-    db.add(models.Notification(
-        user_id=regulator.id,
-        type=models.NotificationType.ALERT,
-        sender="System",
-        priority=priority,
-        message=message
-    ))
 
 @router.post("/create", response_model=schemas.Batch)
 def create_batch(
     farmer_id: int = Form(...),
     crop_name: str = Form(...),
     quantity: float = Form(...),
-    location: str = Form(...),
+    location: str = Form(...),   # "lat,lng"
     region: str = Form(None),
     files: List[UploadFile] = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-
+    # ---- Parse GPS ----
     lat, lng = 0.0, 0.0
     try:
-        parts = location.split(",")
-        lat = float(parts[0])
-        lng = float(parts[1])
-    except:
-        pass
+        lat_str, lng_str = location.split(",")
+        lat, lng = float(lat_str), float(lng_str)
+    except Exception:
+        pass  # allow fallback
 
+    # ---- Validate images ----
     if not files or len(files) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Please upload at least 2 photos from different angles."
+            detail="Please upload at least 2 photos from different angles.",
         )
 
-    file_payloads = []
     seen_hashes = set()
+    file_payloads = []
 
     for file in files:
         content = file.file.read()
@@ -77,13 +74,13 @@ def create_batch(
         if h in seen_hashes:
             raise HTTPException(
                 status_code=400,
-                detail="Duplicate image detected."
+                detail="Duplicate image detected.",
             )
         seen_hashes.add(h)
         file_payloads.append((file.filename, content))
 
-
-    batch_id = str(uuid.uuid4())[:8]
+    # ---- Create Batch (initial) ----
+    batch_id = uuid.uuid4().hex[:8]
 
     batch = models.Batch(
         batch_id=batch_id,
@@ -95,40 +92,46 @@ def create_batch(
         longitude=lng,
         region=region or "Local Farm",
         status=models.BatchStatus.HARVESTED,
-        is_verified=False
+        is_verified=False,
     )
 
     db.add(batch)
     db.commit()
     db.refresh(batch)
 
-    image_paths = []
+    # ---- Save images ----
+    image_paths: List[Path] = []
 
     for idx, (filename, content) in enumerate(file_payloads):
         ext = filename.split(".")[-1]
         unique_name = f"{uuid.uuid4()}.{ext}"
-        path = os.path.join(UPLOAD_DIR, unique_name)
+        file_path = os.path.join(UPLOAD_DIR, unique_name)
 
-        with open(path, "wb") as f:
+        with open(file_path, "wb") as f:
             f.write(content)
 
-        image_paths.append(Path(path))
+        image_paths.append(Path(file_path))
 
-        db.add(models.BatchImage(
-            batch_id=batch.id,
-            image_url=f"/static/uploads/{unique_name}",
-            description=f"Harvest Image {idx + 1}"
-        ))
+        db.add(
+            models.BatchImage(
+                batch_id=batch.id,
+                image_url=f"/static/uploads/{unique_name}",
+                description=f"Harvest Image {idx + 1}",
+            )
+        )
 
+    # ---- FRAUD CHECKS ----
     fraud_reasons = []
 
-
     region_safe = region if region else "Unknown"
+
     f1, r1 = check_crop_location(crop_name, region_safe)
     f2, r2 = check_yield(crop_name, quantity, 1)  # assume 1 acre
 
-    if f1: fraud_reasons.append(r1)
-    if f2: fraud_reasons.append(r2)
+    if f1:
+        fraud_reasons.append(r1)
+    if f2:
+        fraud_reasons.append(r2)
 
     exif = extract_exif(image_paths[0])
     if not exif:
@@ -144,14 +147,18 @@ def create_batch(
             if f4:
                 fraud_reasons.append(f"GPS mismatch warning: {r4}")
 
-
     if fraud_reasons:
         batch.status = models.BatchStatus.FLAGGED
         batch.processor_notes = "; ".join(fraud_reasons)
+        batch.is_verified = False
+        batch.expiry_date = None
+        batch.estimated_shelf_life = None
+
         db.commit()
         db.refresh(batch)
         return batch
-    
+
+    # ---- AI FRESHNESS ----
     ai = analyze_freshness(image_paths[0])
 
     if "error" in ai:
@@ -159,7 +166,7 @@ def create_batch(
             "freshness_score": 85,
             "quality_grade": "B",
             "estimated_shelf_life_days": 4,
-            "visual_defects": []
+            "visual_defects": [],
         }
 
     batch.freshness_score = ai["freshness_score"]
@@ -172,10 +179,11 @@ def create_batch(
         + datetime.timedelta(days=ai["estimated_shelf_life_days"])
     )
 
+
     batch.origin_hash = generate_origin_hash(
         latitude=lat,
         longitude=lng,
-        region=region or "Local Farm"
+        region=region or "Local Farm",
     )
 
     onchain_payload = {
@@ -183,32 +191,46 @@ def create_batch(
         "cropType": crop_name,
         "originHash": batch.origin_hash,
         "expiryDate": batch.expiry_date.date().isoformat(),
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
+    # Pre-chain content hash (tx hash later)
     batch.blockchain_tx_hash = hash_onchain_record(onchain_payload)
 
     batch.status = models.BatchStatus.VERIFIED
     batch.is_verified = True
 
-    db.add(models.BatchEvent(
-        batch_id=batch.id,
-        event_type="VERIFIED",
-        description="Batch passed fraud checks and AI verification",
-        location=f"{lat},{lng}"
-    ))
+    db.add(
+        models.BatchEvent(
+            batch_id=batch.id,
+            event_type="VERIFIED",
+            description="Batch passed fraud checks and AI verification",
+            location=f"{lat},{lng}",
+        )
+    )
 
     db.commit()
     db.refresh(batch)
     return batch
 
+
 @router.get("/farmer/{farmer_id}", response_model=List[schemas.Batch])
 def get_my_batches(farmer_id: int, db: Session = Depends(get_db)):
-    return db.query(models.Batch).filter(models.Batch.farmer_id == farmer_id).order_by(models.Batch.harvest_date.desc()).all()
+    return (
+        db.query(models.Batch)
+        .filter(models.Batch.farmer_id == farmer_id)
+        .order_by(models.Batch.harvest_date.desc())
+        .all()
+    )
+
 
 @router.get("/{batch_id}", response_model=schemas.Batch)
 def get_batch_by_id(batch_id: str, db: Session = Depends(get_db)):
-    batch = db.query(models.Batch).filter(models.Batch.batch_id == batch_id).first()
+    batch = (
+        db.query(models.Batch)
+        .filter(models.Batch.batch_id == batch_id)
+        .first()
+    )
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
