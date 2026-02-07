@@ -88,6 +88,7 @@ class Batch(BatchBase):
     visual_defects: Optional[str] = None
     processor_notes: Optional[str] = None
     
+    origin_hash: Optional[str] = None
     blockchain_tx_hash: Optional[str] = None
     is_verified: bool = False 
 

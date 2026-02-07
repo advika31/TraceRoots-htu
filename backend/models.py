@@ -8,6 +8,8 @@ import enum
 # --- ENUMS ---
 class BatchStatus(str, enum.Enum):
     HARVESTED = "HARVESTED"       
+    VERIFIED = "VERIFIED"
+    FLAGGED = "FLAGGED"
     AT_PROCESSOR = "AT_PROCESSOR" 
     LAB_TESTED = "LAB_TESTED"     
     IN_TRANSIT = "IN_TRANSIT"
