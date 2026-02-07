@@ -1,3 +1,4 @@
+# backend/utils/video_utils.py
 import os
 from moviepy.video.VideoClip import ImageClip
 from moviepy.video.compositing.CompositeVideoClip import concatenate_videoclips
@@ -11,9 +12,8 @@ TARGET_DURATION = 10.0
 os.makedirs("static/generated_videos", exist_ok=True)
 
 def generate_video(batch, audio_path: str) -> str:
-    print("🎧 AUDIO PATH RECEIVED:", audio_path)
-    print("📁 ABSOLUTE PATH:", os.path.abspath(audio_path))
-    print("✅ AUDIO EXISTS:", os.path.exists(audio_path))
+    print("🎧 AUDIO PATH:", audio_path)
+    print("✅ EXISTS:", os.path.exists(audio_path))
 
     image_paths = [
         "video_templates/farm.jpg",
@@ -22,18 +22,16 @@ def generate_video(batch, audio_path: str) -> str:
         "video_templates/impact.jpg",
     ]
 
-    # 1️⃣ Load narration
     narration = AudioFileClip(audio_path).with_fps(AUDIO_FPS)
     narration_duration = narration.duration
 
-    # 2️⃣ Handle audio length
+    # 🔊 Pad or trim audio to 10s
     if narration_duration < TARGET_DURATION:
         silence = AudioClip(
             lambda t: 0.0,
             duration=TARGET_DURATION - narration_duration,
             fps=AUDIO_FPS
         )
-
         audio = CompositeAudioClip([
             narration.with_start(0),
             silence.with_start(narration_duration)
@@ -43,7 +41,7 @@ def generate_video(batch, audio_path: str) -> str:
 
     audio = audio.with_duration(TARGET_DURATION)
 
-    # 3️⃣ Build video from images
+    # 🎥 Build video
     scene_duration = TARGET_DURATION / len(image_paths)
     clips = []
 
@@ -56,8 +54,7 @@ def generate_video(batch, audio_path: str) -> str:
 
     video = concatenate_videoclips(
         clips,
-        method="compose",
-        padding=-0.2
+        method="compose"
     ).with_audio(audio)
 
     output_path = f"static/generated_videos/batch_{batch.batch_id}.mp4"
@@ -71,4 +68,5 @@ def generate_video(batch, audio_path: str) -> str:
         threads=4
     )
 
+    print("🎬 Video generated:", output_path)
     return output_path

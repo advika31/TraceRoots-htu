@@ -5,3 +5,5 @@ frontend/.vscode
 backend/venv
 backend/env
 backend/.venv
+backend/.venvbackend/.venvbackend/.venvbackend/.venv
+backend/__pycache__
