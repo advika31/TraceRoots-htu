@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"pages\\\\ngo.js -> leaflet\":{\"id\":\"pages\\\\ngo.js -> leaflet\",\"files\":[\"static/chunks/node_modules_leaflet_dist_leaflet-src_js.js\"]},\"pages\\\\ngo.js -> react-leaflet\":{\"id\":\"pages\\\\ngo.js -> react-leaflet\",\"files\":[\"static/chunks/node_modules_react-leaflet_lib_index_js.js\"]}}"
