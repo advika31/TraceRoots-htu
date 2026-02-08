@@ -1,0 +1,10 @@
+1. Download anchor from:
+   https://github.com/solana-foundation/anchor/releases/download/v0.32.1/anchor-0.32.1-x86_64-pc-windows-msvc.exe
+
+2. Rename the file to: anchor.exe
+
+3. Move it into this folder (traceroots-solana/tools/)
+
+4. Then run from traceroots-solana folder:
+   .\build.bat
+   .\test.bat
